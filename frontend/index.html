@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Group Face Attendance</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="bg-shape shape-1"></div>
+    <div class="bg-shape shape-2"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-dot"></div>
+        <div>
+          <h1>Group Face Attendance</h1>
+          <p>Admin • Faculty • Student</p>
+        </div>
+      </div>
+      <div class="session-actions">
+        <span id="whoami"></span>
+        <button id="logoutBtn" class="ghost" hidden>Logout</button>
+      </div>
+    </header>
+
+    <main class="container">
+      <section id="loginCard" class="card">
+        <h2>Login</h2>
+        <p class="hint">Use credentials created from admin panel. Default admin: <code>admin / admin123</code></p>
+        <form id="loginForm" class="grid-2">
+          <label>
+            Username
+            <input id="loginUsername" type="text" required />
+          </label>
+          <label>
+            Password
+            <input id="loginPassword" type="password" required />
+          </label>
+          <button type="submit">Sign In</button>
+        </form>
+      </section>
+
+      <section id="adminView" class="card" hidden>
+        <h2>Admin Dashboard</h2>
+        <div class="stats" id="adminStats"></div>
+
+        <div class="admin-layout">
+          <aside class="admin-sidebar">
+            <button class="admin-nav-btn active" data-admin-section="adminSectionCreateStudent" type="button">Create Student</button>
+            <button class="admin-nav-btn" data-admin-section="adminSectionCreateFaculty" type="button">Create Faculty</button>
+            <button class="admin-nav-btn" data-admin-section="adminSectionAssignFaculty" type="button">Assign Faculty</button>
+            <button class="admin-nav-btn" data-admin-section="adminSectionAssignedStudents" type="button">Assigned Students</button>
+            <button class="admin-nav-btn" data-admin-section="adminSectionSessions" type="button">Attendance Sessions</button>
+            <button class="admin-nav-btn" data-admin-section="adminSectionRecords" type="button">Attendance Records</button>
+            <button class="admin-nav-btn" data-admin-section="adminSectionStudentSearch" type="button">Student Search</button>
+            <div class="actions-row">
+              <button id="refreshAdminDataBtn" class="ghost" type="button">Refresh Data</button>
+            </div>
+          </aside>
+
+          <div class="admin-main">
+            <section id="adminSectionCreateStudent" class="admin-panel">
+              <h3>Create Student</h3>
+              <form id="addStudentForm" class="stack">
+                <input id="studentName" placeholder="Full Name" required />
+                <input id="studentUsername" placeholder="Username" required />
+                <input id="studentPassword" type="password" placeholder="Password" required />
+                <button type="submit">Create Student</button>
+              </form>
+            </section>
+
+            <section id="adminSectionCreateFaculty" class="admin-panel" hidden>
+              <h3>Create Faculty</h3>
+              <form id="addFacultyForm" class="stack">
+                <input id="facultyName" placeholder="Full Name" required />
+                <input id="facultyUsername" placeholder="Username" required />
+                <input id="facultyPassword" type="password" placeholder="Password" required />
+                <button type="submit">Create Faculty</button>
+              </form>
+            </section>
+
+            <section id="adminSectionAssignFaculty" class="admin-panel" hidden>
+              <h3>Assign Student To Faculty</h3>
+              <form id="assignForm" class="grid-2">
+                <label>
+                  Faculty
+                  <select id="facultySelect" required></select>
+                </label>
+                <label>
+                  Student
+                  <select id="studentSelect" required></select>
+                </label>
+                <button type="submit">Assign</button>
+              </form>
+              <h4>Faculty</h4>
+              <div id="adminFaculty"></div>
+              <h4>Students</h4>
+              <div id="adminStudents"></div>
+            </section>
+
+            <section id="adminSectionAssignedStudents" class="admin-panel" hidden>
+              <h3>Assigned Students</h3>
+              <div id="adminAssignments"></div>
+            </section>
+
+            <section id="adminSectionSessions" class="admin-panel" hidden>
+              <h3>Attendance Sessions</h3>
+              <div id="adminSessions"></div>
+            </section>
+
+            <section id="adminSectionRecords" class="admin-panel" hidden>
+              <h3>Attendance Records (latest 500)</h3>
+              <div id="adminRecords"></div>
+            </section>
+
+            <section id="adminSectionStudentSearch" class="admin-panel" hidden>
+              <h3>Student Search</h3>
+              <p class="hint">Search by student ID to view complete assignment and attendance data.</p>
+              <form id="adminStudentSearchForm" class="grid-2">
+                <label>
+                  Student ID
+                  <input id="adminStudentSearchId" type="number" min="1" required />
+                </label>
+                <button type="submit">Search Student</button>
+              </form>
+              <div id="adminStudentLookup"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section id="facultyView" class="card" hidden>
+        <h2>Faculty Dashboard</h2>
+        <div class="role-layout">
+          <aside class="role-sidebar">
+            <button class="role-nav-btn active" data-faculty-section="facultySectionStart" type="button">Start Session</button>
+            <button class="role-nav-btn" data-faculty-section="facultySectionScan" type="button">Scan Group Photos</button>
+            <button class="role-nav-btn" data-faculty-section="facultySectionManual" type="button">Manual Update</button>
+            <button class="role-nav-btn" data-faculty-section="facultySectionAttendance" type="button">View Attendance</button>
+          </aside>
+
+          <div class="role-main">
+            <section id="facultySectionStart" class="role-panel">
+              <h3>Start Attendance Session</h3>
+              <form id="startSessionForm" class="grid-2">
+                <label>
+                  Subject Name
+                  <input id="subjectName" placeholder="e.g. Math - Section A" required />
+                </label>
+                <button type="submit">Start Attendance Session</button>
+              </form>
+
+              <div class="inline-info">
+                <span>Current Session ID:</span>
+                <code id="currentSession">none</code>
+              </div>
+              <p id="scanStatus" class="hint">Scan status: idle</p>
+            </section>
+
+            <section id="facultySectionScan" class="role-panel" hidden>
+              <h3>Auto Mark From Group Photos</h3>
+              <form id="scanForm" class="stack">
+                <input id="groupPhotos" type="file" multiple accept="image/*" required />
+                <button type="submit">Scan & Auto Mark</button>
+              </form>
+            </section>
+
+            <section id="facultySectionManual" class="role-panel" hidden>
+              <h3>Manual Correction</h3>
+              <form id="manualForm" class="grid-2">
+                <label>
+                  Student ID
+                  <input id="manualStudentId" type="number" required />
+                </label>
+                <label>
+                  Mark
+                  <select id="manualPresence">
+                    <option value="true">Present</option>
+                    <option value="false">Absent</option>
+                  </select>
+                </label>
+                <button type="submit">Update Manually</button>
+              </form>
+            </section>
+
+            <section id="facultySectionAttendance" class="role-panel" hidden>
+              <h3>Session Attendance</h3>
+              <div class="actions-row">
+                <button id="viewAttendanceBtn" class="ghost">View Session Attendance</button>
+                <button id="finalizeBtn">Finalize Session</button>
+              </div>
+              <div id="facultyAttendanceTable"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section id="studentView" class="card" hidden>
+        <h2>Student Dashboard</h2>
+
+        <div class="role-layout">
+          <aside class="role-sidebar">
+            <button class="role-nav-btn active" data-student-section="studentSectionRegister" type="button">Register Photos</button>
+            <button class="role-nav-btn" data-student-section="studentSectionFaculty" type="button">My Faculty</button>
+            <button class="role-nav-btn" data-student-section="studentSectionSummary" type="button">Attendance Summary</button>
+          </aside>
+
+          <div class="role-main">
+            <section id="studentSectionRegister" class="role-panel">
+              <h3>First Time Registration</h3>
+              <form id="registerPhotosForm" class="stack">
+                <input id="studentPhotos" type="file" multiple accept="image/*" required />
+                <button type="submit">Upload Registration Photos</button>
+              </form>
+              <p class="hint">Upload at least 3 images from different angles. You can upload one-by-one or many at once.</p>
+            </section>
+
+            <section id="studentSectionFaculty" class="role-panel" hidden>
+              <h3>My Faculty</h3>
+              <div id="myFaculty" class="panel"></div>
+            </section>
+
+            <section id="studentSectionSummary" class="role-panel" hidden>
+              <h3>Attendance Summary</h3>
+              <div id="studentStats" class="stats"></div>
+            </section>
+          </div>
+        </div>
+      </section>
+
+      <section id="messageBox" class="toast" hidden></section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

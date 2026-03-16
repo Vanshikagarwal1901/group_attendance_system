@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.venv/
+data/*.db
+data/student_images/
+data/group_images/

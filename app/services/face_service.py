@@ -6,6 +6,8 @@ import numpy as np
 from fastapi import UploadFile
 from deepface import DeepFace
 
+from app.services.retinaface_service import detect_face_crops_from_path
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 STUDENT_IMAGES_DIR = BASE_DIR / "data" / "student_images"
 GROUP_IMAGES_DIR = BASE_DIR / "data" / "group_images"
@@ -13,12 +15,12 @@ GROUP_IMAGES_DIR = BASE_DIR / "data" / "group_images"
 STUDENT_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 GROUP_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 
-# FaceNet model + MTCNN detector used throughout.
+# FaceNet embeddings with RetinaFace-first detection.
 # Cosine similarity: 1.0 = identical, lower = less similar.
 # DeepFace's recommended cosine distance threshold for FaceNet is 0.40,
 # which corresponds to a similarity floor of 0.60.
 _MODEL_NAME = "Facenet"
-_DETECTOR_BACKEND = "mtcnn"
+_FALLBACK_DETECTOR_BACKENDS = ["retinaface", "mtcnn", "opencv"]
 SIMILARITY_THRESHOLD = 0.60
 
 
@@ -35,13 +37,12 @@ def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.dot(a, b) / (norm_a * norm_b))
 
 
-def _get_embedding(image_path: str) -> np.ndarray | None:
-    """Return the FaceNet embedding for the (single) face in a registration photo."""
+def _embedding_from_face_crop(face_crop: np.ndarray) -> np.ndarray | None:
     try:
         results = DeepFace.represent(
-            img_path=image_path,
+            img_path=face_crop,
             model_name=_MODEL_NAME,
-            detector_backend=_DETECTOR_BACKEND,
+            detector_backend="skip",
             enforce_detection=False,
         )
         if results:
@@ -51,22 +52,62 @@ def _get_embedding(image_path: str) -> np.ndarray | None:
     return None
 
 
-def _get_all_face_embeddings(image_path: str) -> list[np.ndarray]:
-    """Detect every face in a group photo and return their FaceNet embeddings."""
+def _retinaface_embeddings(image_path: str) -> list[np.ndarray]:
     try:
-        results = DeepFace.represent(
-            img_path=image_path,
-            model_name=_MODEL_NAME,
-            detector_backend=_DETECTOR_BACKEND,
-            enforce_detection=False,
-        )
-        return [
-            np.array(r["embedding"], dtype=np.float32)
-            for r in results
-            if r.get("embedding")
-        ]
+        face_crops = detect_face_crops_from_path(image_path)
     except Exception:
         return []
+
+    embeddings: list[np.ndarray] = []
+    for crop in face_crops:
+        if embedding := _embedding_from_face_crop(crop):
+            embeddings.append(embedding)
+
+    return embeddings
+
+
+def _deepface_backend_embeddings(image_path: str) -> list[np.ndarray]:
+    for backend in _FALLBACK_DETECTOR_BACKENDS:
+        try:
+            results = DeepFace.represent(
+                img_path=image_path,
+                model_name=_MODEL_NAME,
+                detector_backend=backend,
+                enforce_detection=False,
+            )
+            embeddings = [
+                np.array(result["embedding"], dtype=np.float32)
+                for result in results
+                if result.get("embedding")
+            ]
+            if embeddings:
+                return embeddings
+        except Exception:
+            continue
+
+    return []
+
+
+def _get_embedding(image_path: str) -> np.ndarray | None:
+    """Return the FaceNet embedding for the (single) face in a registration photo."""
+    retinaface_embeddings = _retinaface_embeddings(image_path)
+    if retinaface_embeddings:
+        return retinaface_embeddings[0]
+
+    fallback_embeddings = _deepface_backend_embeddings(image_path)
+    if fallback_embeddings:
+        return fallback_embeddings[0]
+
+    return None
+
+
+def _get_all_face_embeddings(image_path: str) -> list[np.ndarray]:
+    """Detect every face in a group photo and return their FaceNet embeddings."""
+    retinaface_embeddings = _retinaface_embeddings(image_path)
+    if retinaface_embeddings:
+        return retinaface_embeddings
+
+    return _deepface_backend_embeddings(image_path)
 
 
 def register_student_photo(student_id: int, file: UploadFile) -> str:

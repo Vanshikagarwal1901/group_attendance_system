@@ -1,9 +1,12 @@
 from pathlib import Path
-import importlib
+import importlib.util
 import sys
+import types
+from importlib.machinery import SourcelessFileLoader
 
 import cv2
 import numpy as np
+
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -15,6 +18,24 @@ _CFG = None
 _TORCH = None
 
 
+def _ensure_package_namespace(name: str) -> None:
+    if name in sys.modules:
+        return
+
+    package = types.ModuleType(name)
+    package.__path__ = [str(RETINAFACE_DIR)]
+    sys.modules[name] = package
+
+
+def _load_sourceless_module(module_name: str, pyc_path: Path):
+    loader = SourcelessFileLoader(module_name, str(pyc_path))
+    spec = importlib.util.spec_from_loader(module_name, loader)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    loader.exec_module(module)
+    return module
+
+
 def _ensure_retinaface_imports():
     global _CFG
     global _TORCH
@@ -22,12 +43,23 @@ def _ensure_retinaface_imports():
     if _CFG is not None and _TORCH is not None:
         return
 
-    if str(RETINAFACE_DIR) not in sys.path:
-        sys.path.insert(0, str(RETINAFACE_DIR))
+    if str(BASE_DIR) not in sys.path:
+        sys.path.insert(0, str(BASE_DIR))
 
-    torch = importlib.import_module("torch")
-    cfg_module = importlib.import_module("data")
+    for package_name in ["data", "layers", "layers.functions", "layers.modules", "models", "utils", "utils.nms"]:
+        _ensure_package_namespace(package_name)
+
+    torch = __import__("torch")
+    cfg_module = _load_sourceless_module("data.config", RETINAFACE_DIR / "data" / "__pycache__" / "config.cpython-313.pyc")
     cfg_re50 = cfg_module.cfg_re50
+    _load_sourceless_module(
+        "layers.functions.prior_box",
+        RETINAFACE_DIR / "layers" / "functions" / "__pycache__" / "prior_box.cpython-313.pyc",
+    )
+    _load_sourceless_module(
+        "utils.nms.py_cpu_nms",
+        RETINAFACE_DIR / "utils" / "nms" / "__pycache__" / "py_cpu_nms.cpython-313.pyc",
+    )
 
     _TORCH = torch
     _CFG = cfg_re50
@@ -44,7 +76,14 @@ def _load_model():
 
     _ensure_retinaface_imports()
 
-    retinaface_module = importlib.import_module("models.retinaface")
+    _load_sourceless_module(
+        "models.net",
+        RETINAFACE_DIR / "models" / "__pycache__" / "net.cpython-313.pyc",
+    )
+    retinaface_module = _load_sourceless_module(
+        "models.retinaface",
+        RETINAFACE_DIR / "models" / "__pycache__" / "retinaface.cpython-313.pyc",
+    )
     RetinaFace = retinaface_module.RetinaFace
 
     model = RetinaFace(cfg=_CFG, phase="test")
@@ -56,6 +95,19 @@ def _load_model():
     return _MODEL
 
 
+def _decode_boxes(loc: np.ndarray, priors: np.ndarray, variances: list[float]) -> np.ndarray:
+    boxes = np.concatenate(
+        (
+            priors[:, :2] + loc[:, :2] * variances[0] * priors[:, 2:],
+            priors[:, 2:] * np.exp(loc[:, 2:] * variances[1]),
+        ),
+        axis=1,
+    )
+    boxes[:, :2] -= boxes[:, 2:] / 2
+    boxes[:, 2:] += boxes[:, :2]
+    return boxes
+
+
 def detect_face_crops(
     image: np.ndarray,
     confidence_threshold: float = 0.6,
@@ -63,12 +115,10 @@ def detect_face_crops(
 ) -> list[np.ndarray]:
     _ensure_retinaface_imports()
 
-    prior_box_module = importlib.import_module("layers.functions.prior_box")
-    box_utils_module = importlib.import_module("utils.box_utils")
-    nms_module = importlib.import_module("utils.nms.py_cpu_nms")
+    prior_box_module = sys.modules["layers.functions.prior_box"]
+    nms_module = sys.modules["utils.nms.py_cpu_nms"]
 
     PriorBox = prior_box_module.PriorBox
-    decode = box_utils_module.decode
     py_cpu_nms = nms_module.py_cpu_nms
 
     model = _load_model()
@@ -86,9 +136,8 @@ def detect_face_crops(
     priorbox = PriorBox(_CFG, image_size=(height, width))
     priors = priorbox.forward().data
 
-    boxes = decode(loc.squeeze(0), priors, _CFG["variance"])
-    boxes = boxes * scale
-    boxes = boxes.numpy()
+    boxes = _decode_boxes(loc.squeeze(0).numpy(), priors.numpy(), _CFG["variance"])
+    boxes = boxes * scale.numpy()
     scores = conf.squeeze(0).numpy()[:, 1]
 
     inds = np.where(scores > confidence_threshold)[0]

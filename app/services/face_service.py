@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 from uuid import uuid4
 
 import cv2
@@ -19,9 +20,22 @@ GROUP_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 # Cosine similarity: 1.0 = identical, lower = less similar.
 # DeepFace's recommended cosine distance threshold for FaceNet is 0.40,
 # which corresponds to a similarity floor of 0.60.
-_MODEL_NAME = "Facenet"
+_DEFAULT_MODEL = "Facenet512"
+_MODEL_NAME = os.getenv("FACE_MODEL_NAME", _DEFAULT_MODEL)
 _FALLBACK_DETECTOR_BACKENDS = ["retinaface", "mtcnn", "opencv"]
-SIMILARITY_THRESHOLD = 0.60
+_MODEL_SIMILARITY_DEFAULTS = {
+    "Facenet": 0.60,
+    "Facenet512": 0.68,
+    "ArcFace": 0.68,
+}
+SIMILARITY_THRESHOLD = float(
+    os.getenv(
+        "FACE_SIMILARITY_THRESHOLD",
+        str(_MODEL_SIMILARITY_DEFAULTS.get(_MODEL_NAME, 0.65)),
+    )
+)
+MIN_FACE_SIZE_PX = int(os.getenv("FACE_MIN_SIZE_PX", "60"))
+MIN_FACE_SHARPNESS = float(os.getenv("FACE_MIN_SHARPNESS", "40.0"))
 
 
 def _save_upload(file: UploadFile, destination: Path) -> None:
@@ -52,7 +66,20 @@ def _embedding_from_face_crop(face_crop: np.ndarray) -> np.ndarray | None:
     return None
 
 
+def _is_face_crop_usable(face_crop: np.ndarray) -> bool:
+    height, width = face_crop.shape[:2]
+    if min(height, width) < MIN_FACE_SIZE_PX:
+        return False
+
+    gray = cv2.cvtColor(face_crop, cv2.COLOR_BGR2GRAY)
+    sharpness = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    return sharpness >= MIN_FACE_SHARPNESS
+
+
 def _retinaface_embeddings(image_path: str) -> list[np.ndarray]:
+    if not Path(image_path).exists():
+        return []
+
     try:
         face_crops = detect_face_crops_from_path(image_path)
     except Exception:
@@ -60,13 +87,19 @@ def _retinaface_embeddings(image_path: str) -> list[np.ndarray]:
 
     embeddings: list[np.ndarray] = []
     for crop in face_crops:
-        if embedding := _embedding_from_face_crop(crop):
+        if not _is_face_crop_usable(crop):
+            continue
+        embedding = _embedding_from_face_crop(crop)
+        if embedding is not None:
             embeddings.append(embedding)
 
     return embeddings
 
 
 def _deepface_backend_embeddings(image_path: str) -> list[np.ndarray]:
+    if not Path(image_path).exists():
+        return []
+
     for backend in _FALLBACK_DETECTOR_BACKENDS:
         try:
             results = DeepFace.represent(
@@ -110,6 +143,26 @@ def _get_all_face_embeddings(image_path: str) -> list[np.ndarray]:
     return _deepface_backend_embeddings(image_path)
 
 
+def _group_image_embeddings(image_path: str) -> list[np.ndarray]:
+    embeddings = _get_all_face_embeddings(image_path)
+    if embeddings:
+        return embeddings
+
+    if not Path(image_path).exists():
+        return []
+
+    try:
+        results = DeepFace.represent(
+            img_path=image_path,
+            model_name=_MODEL_NAME,
+            detector_backend="skip",
+            enforce_detection=False,
+        )
+        return [np.array(result["embedding"], dtype=np.float32) for result in results if result.get("embedding")]
+    except Exception:
+        return []
+
+
 def register_student_photo(student_id: int, file: UploadFile) -> str:
     safe_name = file.filename or "photo.jpg"
     filename = f"student_{student_id}_{uuid4().hex}_{safe_name}"
@@ -119,6 +172,15 @@ def register_student_photo(student_id: int, file: UploadFile) -> str:
     image = cv2.imread(str(target))
     if image is None:
         raise ValueError("Invalid image file")
+
+    face_crops = detect_face_crops_from_path(str(target))
+    usable_crops = [crop for crop in face_crops if _is_face_crop_usable(crop)]
+    if not usable_crops:
+        target.unlink(missing_ok=True)
+        raise ValueError("No clear face detected. Upload a brighter and sharper photo.")
+    if len(usable_crops) > 1:
+        target.unlink(missing_ok=True)
+        raise ValueError("Upload a single-person photo only.")
 
     return str(target)
 
@@ -133,7 +195,13 @@ def find_present_students(
     # --- Build embedding database from registered photos ---
     student_embeddings: dict[int, list[np.ndarray]] = {}
     for student_id, paths in student_photo_paths.items():
-        embeddings = [emb for path in paths if (emb := _get_embedding(path)) is not None]
+        embeddings: list[np.ndarray] = []
+        for path in paths:
+            if not Path(path).exists():
+                continue
+            emb = _get_embedding(path)
+            if emb is not None:
+                embeddings.append(emb)
         if embeddings:
             student_embeddings[student_id] = embeddings
 
@@ -146,7 +214,7 @@ def find_present_students(
         group_target = GROUP_IMAGES_DIR / safe_filename
         _save_upload(image_file, group_target)
 
-        face_embeddings = _get_all_face_embeddings(str(group_target))
+        face_embeddings = _group_image_embeddings(str(group_target))
 
         for face_emb in face_embeddings:
             for student_id, registered_embeddings in student_embeddings.items():

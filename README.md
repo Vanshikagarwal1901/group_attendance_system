@@ -16,7 +16,7 @@ This is a FastAPI starter backend for your workflow:
 - FastAPI
 - SQLite (SQLAlchemy)
 - JWT auth
-- OpenCV (Haar Cascade + LBPH) for matching
+- RetinaFace + DeepFace embeddings with OpenCV fallback for matching
 
 ## Project Structure
 
@@ -89,6 +89,31 @@ Change this in `app/main.py` before production.
 - For best accuracy, student registration photos should be clear and from multiple angles.
 - Group photos should have visible faces with decent lighting.
 - Matching confidence threshold is configured in `app/services/face_service.py`.
+- Detection is handled by RetinaFace, and recognition is handled by DeepFace embeddings plus cosine similarity.
+- If scan results look stale in the admin or faculty dashboard, refresh the page to reload the latest table state.
+- Missing student image files are skipped automatically during scan instead of breaking the request.
+
+### Accuracy Tuning
+
+You can tune recognition behavior with environment variables before starting the app:
+
+- `FACE_MODEL_NAME` (default: `Facenet512`)
+- `FACE_SIMILARITY_THRESHOLD` (default depends on model)
+  - `Facenet`: `0.60`
+  - `Facenet512`: `0.68`
+  - `ArcFace`: `0.68`
+- `FACE_MIN_SIZE_PX` (default: `60`) minimum detected face size.
+- `FACE_MIN_SHARPNESS` (default: `40.0`) blur filter using Laplacian variance.
+
+Example (PowerShell):
+
+```powershell
+$env:FACE_MODEL_NAME="Facenet512"
+$env:FACE_SIMILARITY_THRESHOLD="0.7"
+$env:FACE_MIN_SIZE_PX="90"
+$env:FACE_MIN_SHARPNESS="110"
+uvicorn app.main:app --reload
+```
 
 ## Production Improvements
 

@@ -321,7 +321,7 @@ async function refreshAdminData() {
     records.map((r) => ({
       ...r,
       actions:
-        actionButton("Toggle Presence", "admin-toggle-record", r.record_id) +
+        `<button type="button" class="btn-mini" data-action="admin-toggle-record" data-id="${r.record_id}" data-current-present="${r.is_present}">Toggle Presence</button>` +
         " " +
         actionButton("Delete", "admin-delete-record", r.record_id),
     }))
@@ -755,8 +755,7 @@ $("adminView").addEventListener("click", async (e) => {
     }
 
     if (action === "admin-toggle-record") {
-      const currentValueCell = button.closest("tr")?.children?.[4];
-      const current = (currentValueCell?.textContent || "").toLowerCase().includes("true");
+      const current = String(button.dataset.currentPresent).toLowerCase() === "true";
       const next = !current;
       await api(`/admin/records/${id}`, {
         method: "PATCH",

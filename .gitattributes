@@ -1,0 +1,2 @@
+retinaface/weights/*.pth filter=lfs diff=lfs merge=lfs -text
+retinaface/weights/*.tar filter=lfs diff=lfs merge=lfs -text

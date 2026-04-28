@@ -1,6 +1,8 @@
 from pathlib import Path
+import os
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
@@ -11,6 +13,20 @@ from app.models import User, UserRole
 from app.routers import admin, auth, faculty, student
 
 app = FastAPI(title="Group Face Attendance System")
+
+cors_origins = [
+    origin.strip()
+    for origin in os.getenv("APP_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000").split(",")
+    if origin.strip()
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def _migrate_faculty_students_schema() -> None:

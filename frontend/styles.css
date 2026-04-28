@@ -818,6 +818,11 @@ code {
   .role-sidebar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .admin-nav-btn,
+  .role-nav-btn {
+    min-height: 44px;
+  }
 }
 
 @media (max-width: 900px) {
@@ -827,8 +832,17 @@ code {
     grid-template-columns: 1fr;
   }
 
+  .table {
+    min-width: 720px;
+  }
+
   .card {
     padding: 16px;
+  }
+
+  .admin-layout,
+  .role-layout {
+    gap: 12px;
   }
 }
 
@@ -838,9 +852,56 @@ code {
     width: min(1600px, 96%);
   }
 
+  .topbar {
+    margin-top: 8px;
+    padding: 12px;
+  }
+
+  .brand {
+    align-items: flex-start;
+  }
+
+  .brand h1 {
+    font-size: 1.1rem;
+  }
+
+  .brand p,
+  .topbar-meta,
+  .session-actions {
+    font-size: 0.82rem;
+  }
+
+  .topbar-meta {
+    gap: 6px;
+  }
+
+  .meta-pill {
+    flex: 1 1 auto;
+    text-align: center;
+  }
+
   .admin-sidebar,
   .role-sidebar {
     grid-template-columns: 1fr;
+  }
+
+  .card {
+    padding: 14px;
+    border-radius: 16px;
+  }
+
+  .table {
+    min-width: 640px;
+  }
+
+  .actions-row {
+    gap: 8px;
+  }
+
+  .actions-row button,
+  .grid-2 button,
+  .stack button {
+    width: 100%;
   }
 
   .toast {
@@ -860,5 +921,4 @@ code {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-}
 }

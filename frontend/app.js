@@ -13,7 +13,17 @@ const state = {
   toastHideTimer: null,
 };
 
+const appConfig = window.__APP_CONFIG__ || {};
+const API_BASE_URL = (appConfig.apiBaseUrl || "").replace(/\/$/, "");
+
 const $ = (id) => document.getElementById(id);
+
+function buildApiUrl(path) {
+  if (!API_BASE_URL) {
+    return path;
+  }
+  return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
+}
 
 function showMessage(text, isError = false, durationMs = null) {
   const box = $("messageBox");
@@ -66,7 +76,8 @@ async function api(path, options = {}) {
   let response;
 
   try {
-    response = await fetch(path, {
+    response = await fetch(buildApiUrl(path), {
+      mode: API_BASE_URL ? "cors" : "same-origin",
       ...options,
       headers,
     });

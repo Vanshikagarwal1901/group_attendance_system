@@ -3,6 +3,7 @@ const state = {
   role: localStorage.getItem("role") || "",
   username: localStorage.getItem("username") || "",
   sessionId: null,
+  authHeartbeatTimer: null,
   isScanning: false,
   studentRegistrationReady: false,
   facultySessions: [],
@@ -62,10 +63,20 @@ async function api(path, options = {}) {
     headers.Authorization = `Bearer ${state.token}`;
   }
 
-  const response = await fetch(path, {
-    ...options,
-    headers,
-  });
+  let response;
+
+  try {
+    response = await fetch(path, {
+      ...options,
+      headers,
+    });
+  } catch (error) {
+    if (state.token) {
+      clearSession();
+      showRoleView();
+    }
+    throw new Error("Backend is unavailable. Please login again.");
+  }
 
   if (!response.ok) {
     let msg = `Request failed: ${response.status}`;
@@ -74,6 +85,10 @@ async function api(path, options = {}) {
       msg = data.detail || msg;
     } catch (error) {
       // Keep default message when body is not JSON.
+    }
+    if (response.status === 401 && state.token) {
+      clearSession();
+      showRoleView();
     }
     throw new Error(msg);
   }
@@ -92,9 +107,18 @@ function setSession(token, role, username) {
   localStorage.setItem("token", token);
   localStorage.setItem("role", role);
   localStorage.setItem("username", username);
+  startAuthHeartbeat();
+}
+
+function stopAuthHeartbeat() {
+  if (state.authHeartbeatTimer) {
+    clearInterval(state.authHeartbeatTimer);
+    state.authHeartbeatTimer = null;
+  }
 }
 
 function clearSession() {
+  stopAuthHeartbeat();
   state.token = "";
   state.role = "";
   state.username = "";
@@ -106,6 +130,27 @@ function clearSession() {
   localStorage.removeItem("token");
   localStorage.removeItem("role");
   localStorage.removeItem("username");
+}
+
+function startAuthHeartbeat() {
+  stopAuthHeartbeat();
+
+  if (!state.token) {
+    return;
+  }
+
+  state.authHeartbeatTimer = window.setInterval(async () => {
+    if (!state.token) {
+      stopAuthHeartbeat();
+      return;
+    }
+
+    try {
+      await api("/auth/me");
+    } catch (error) {
+      showMessage(error.message, true);
+    }
+  }, 30000);
 }
 
 function showRoleView() {
@@ -1451,7 +1496,9 @@ $("studentView").addEventListener("click", (e) => {
   showRoleView();
   if (state.token) {
     try {
+      await api("/auth/me");
       await refreshRoleData();
+      startAuthHeartbeat();
     } catch (error) {
       clearSession();
       showRoleView();

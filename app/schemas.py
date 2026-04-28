@@ -80,3 +80,34 @@ class StudentDashboard(BaseModel):
     attended_classes: int
     absent_classes: int
     attendance_percentage: float
+
+
+class StudentPhotoStatus(BaseModel):
+    total_photos: int
+    registration_ready: bool
+    can_reupload: bool
+
+
+class StudentAttendanceHistoryItem(BaseModel):
+    session_id: int
+    subject_name: str
+    session_date: datetime
+    faculty_id: int | None
+    faculty_name: str
+    faculty_username: str | None
+    is_present: bool
+    is_manual_override: bool
+    is_finalized: bool
+
+
+class FacultySessionSummary(BaseModel):
+    session_id: int
+    subject_name: str
+    session_date: datetime
+    is_finalized: bool
+    can_update: bool
+    update_deadline: datetime | None
+
+
+class FaceReviewMarkRequest(BaseModel):
+    student_id: int

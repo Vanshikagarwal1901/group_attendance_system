@@ -4,18 +4,56 @@ const state = {
   username: localStorage.getItem("username") || "",
   sessionId: null,
   isScanning: false,
+  studentRegistrationReady: false,
+  facultySessions: [],
+  facultyFaceFilter: "all",
+  facultyStatusSummary: null,
+  toastTimer: null,
+  toastHideTimer: null,
 };
 
 const $ = (id) => document.getElementById(id);
 
-function showMessage(text, isError = false) {
+function showMessage(text, isError = false, durationMs = null) {
   const box = $("messageBox");
   box.textContent = text;
   box.classList.toggle("error", isError);
+  box.classList.remove("hide");
   box.hidden = false;
-  setTimeout(() => {
-    box.hidden = true;
-  }, 2800);
+  requestAnimationFrame(() => box.classList.add("show"));
+
+  if (state.toastTimer) {
+    clearTimeout(state.toastTimer);
+  }
+  if (state.toastHideTimer) {
+    clearTimeout(state.toastHideTimer);
+  }
+
+  const computedDuration = Math.min(14000, Math.max(4200, String(text).length * 42));
+  const timeout = durationMs ?? computedDuration;
+
+  state.toastTimer = setTimeout(() => {
+    box.classList.remove("show");
+    box.classList.add("hide");
+    state.toastHideTimer = setTimeout(() => {
+      box.hidden = true;
+      box.classList.remove("hide");
+    }, 220);
+  }, timeout);
+}
+
+function revealElement(element, scrollIntoView = false) {
+  if (!element) {
+    return;
+  }
+
+  element.classList.remove("reveal-in");
+  void element.offsetWidth;
+  element.classList.add("reveal-in");
+
+  if (scrollIntoView) {
+    element.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 }
 
 async function api(path, options = {}) {
@@ -61,6 +99,10 @@ function clearSession() {
   state.role = "";
   state.username = "";
   state.sessionId = null;
+  state.studentRegistrationReady = false;
+  state.facultySessions = [];
+  state.facultyFaceFilter = "all";
+  state.facultyStatusSummary = null;
   localStorage.removeItem("token");
   localStorage.removeItem("role");
   localStorage.removeItem("username");
@@ -73,10 +115,90 @@ function showRoleView() {
   $("studentView").hidden = state.role !== "student";
   $("logoutBtn").hidden = !state.token;
   $("whoami").textContent = state.token ? `${state.username} (${state.role})` : "Not logged in";
+
+  if (!state.token) {
+    revealElement($("loginCard"));
+    return;
+  }
+
+  if (state.role === "admin") revealElement($("adminView"));
+  if (state.role === "faculty") revealElement($("facultyView"));
+  if (state.role === "student") revealElement($("studentView"));
 }
 
-function statCard(key, value) {
-  return `<div class="stat"><div class="k">${key}</div><div class="v">${value}</div></div>`;
+function clampPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, n));
+}
+
+function statCard(key, value, options = {}) {
+  const parsedNumber = typeof value === "number" ? value : Number.parseFloat(String(value).replace(/%/g, ""));
+  const inferredPercent =
+    typeof value === "string" && value.includes("%") && Number.isFinite(parsedNumber)
+      ? parsedNumber
+      : options.percent;
+  const chartPercent = clampPercent(inferredPercent ?? 0);
+
+  return `
+    <div class="stat">
+      <div class="k">${key}</div>
+      <div class="v">${value}</div>
+      <div class="stat-viz" aria-hidden="true">
+        <div class="stat-ring" style="--value:${chartPercent};"></div>
+        <div class="stat-bar"><span style="width:${chartPercent}%;"></span></div>
+      </div>
+    </div>`;
+}
+
+function renderStatsSkeleton(containerId, count = 4) {
+  const container = $(containerId);
+  if (!container) {
+    return;
+  }
+  container.innerHTML = Array.from({ length: count })
+    .map(
+      () => `
+      <div class="stat stat-skeleton">
+        <div class="skeleton skeleton-line short"></div>
+        <div class="skeleton skeleton-line"></div>
+        <div class="skeleton skeleton-line"></div>
+      </div>`
+    )
+    .join("");
+}
+
+function renderPanelSkeleton(containerId, lines = 4) {
+  const container = $(containerId);
+  if (!container) {
+    return;
+  }
+  container.innerHTML = `
+    <div class="panel skeleton-panel">
+      ${Array.from({ length: lines })
+        .map((_, idx) => `<div class="skeleton skeleton-line ${idx % 2 === 0 ? "" : "short"}"></div>`)
+        .join("")}
+    </div>`;
+}
+
+function renderTableSkeleton(containerId, rows = 5, cols = 4) {
+  const container = $(containerId);
+  if (!container) {
+    return;
+  }
+
+  const rowHtml = Array.from({ length: rows })
+    .map(
+      () =>
+        `<div class="skeleton-row">${Array.from({ length: cols })
+          .map(() => '<div class="skeleton skeleton-line"></div>')
+          .join("")}</div>`
+    )
+    .join("");
+
+  container.innerHTML = `<div class="table-skeleton">${rowHtml}</div>`;
 }
 
 function actionButton(label, action, id, kind = "") {
@@ -127,38 +249,62 @@ function renderSimpleTable(containerId, columns, items) {
 
 function activateAdminSection(sectionId) {
   const panels = document.querySelectorAll("#adminView .admin-panel");
+  let activePanel = null;
   panels.forEach((panel) => {
     panel.hidden = panel.id !== sectionId;
+    if (!panel.hidden) {
+      activePanel = panel;
+    }
   });
 
   const navButtons = document.querySelectorAll("#adminView .admin-nav-btn");
   navButtons.forEach((button) => {
-    button.classList.toggle("active", button.dataset.adminSection === sectionId);
+    const isActive = button.dataset.adminSection === sectionId;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-current", isActive ? "page" : "false");
   });
+
+  revealElement(activePanel);
 }
 
 function activateFacultySection(sectionId) {
   const panels = document.querySelectorAll("#facultyView .role-panel");
+  let activePanel = null;
   panels.forEach((panel) => {
     panel.hidden = panel.id !== sectionId;
+    if (!panel.hidden) {
+      activePanel = panel;
+    }
   });
 
   const navButtons = document.querySelectorAll("#facultyView .role-nav-btn");
   navButtons.forEach((button) => {
-    button.classList.toggle("active", button.dataset.facultySection === sectionId);
+    const isActive = button.dataset.facultySection === sectionId;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-current", isActive ? "page" : "false");
   });
+
+  revealElement(activePanel);
 }
 
 function activateStudentSection(sectionId) {
   const panels = document.querySelectorAll("#studentView .role-panel");
+  let activePanel = null;
   panels.forEach((panel) => {
     panel.hidden = panel.id !== sectionId;
+    if (!panel.hidden) {
+      activePanel = panel;
+    }
   });
 
   const navButtons = document.querySelectorAll("#studentView .role-nav-btn");
   navButtons.forEach((button) => {
-    button.classList.toggle("active", button.dataset.studentSection === sectionId);
+    const isActive = button.dataset.studentSection === sectionId;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-current", isActive ? "page" : "false");
   });
+
+  revealElement(activePanel);
 }
 
 function renderStudentLookup(data) {
@@ -176,10 +322,20 @@ function renderStudentLookup(data) {
       Faculty: ${facultyText}
     </div>
     <div class="stats" style="margin-top:12px;">
-      ${statCard("Total Classes", data.summary.total_classes)}
-      ${statCard("Present", data.summary.present_classes)}
-      ${statCard("Absent", data.summary.absent_classes)}
-      ${statCard("Attendance", `${data.summary.attendance_percentage}%`)}
+      ${statCard("Total Classes", data.summary.total_classes, { percent: 100 })}
+      ${statCard("Present", data.summary.present_classes, {
+        percent: data.summary.total_classes
+          ? (data.summary.present_classes / data.summary.total_classes) * 100
+          : 0,
+      })}
+      ${statCard("Absent", data.summary.absent_classes, {
+        percent: data.summary.total_classes
+          ? (data.summary.absent_classes / data.summary.total_classes) * 100
+          : 0,
+      })}
+      ${statCard("Attendance", `${data.summary.attendance_percentage}%`, {
+        percent: data.summary.attendance_percentage,
+      })}
     </div>
     <h4>Student Attendance Records</h4>
     <div id="adminStudentRecordTable"></div>
@@ -201,6 +357,216 @@ function renderStudentLookup(data) {
   );
 }
 
+function renderStudentPhotoStatus(photoStatus) {
+  const summary = photoStatus.registration_ready
+    ? "Registration complete. You can reupload photos any time."
+    : "Registration pending. Upload at least 3 photos.";
+
+  $("studentPhotoStatus").innerHTML = `
+    <strong>Photo Registration Status</strong><br />
+    Total uploaded photos: ${photoStatus.total_photos}<br />
+    Ready for attendance: ${photoStatus.registration_ready ? "Yes" : "No"}<br />
+    ${summary}`;
+
+  $("reuploadPhotosBtn").hidden = !photoStatus.can_reupload;
+}
+
+function renderStudentAttendanceHistory(items) {
+  renderSimpleTable(
+    "studentAttendanceHistory",
+    [
+      { key: "session_id", label: "Session ID" },
+      { key: "subject_name", label: "Subject" },
+      { key: "session_date", label: "Date & Time" },
+      { key: "faculty_name", label: "Faculty" },
+      { key: "faculty_username", label: "Faculty Username" },
+      { key: "is_present", label: "Present" },
+      { key: "is_manual_override", label: "Manual" },
+      { key: "is_finalized", label: "Finalized" },
+    ],
+    items
+  );
+}
+
+async function refreshStudentPhotoPreview() {
+  try {
+    const preview = await api("/student/photo-preview");
+    if (!preview || !preview.image_data) {
+      $("studentPhotoPreviewWrap").hidden = true;
+      $("studentPhotoPreviewHint").textContent = "No registration photo available yet.";
+      return;
+    }
+
+    $("studentPhotoPreviewImg").src = preview.image_data;
+    $("studentPhotoPreviewWrap").hidden = false;
+    $("studentPhotoPreviewHint").textContent = `Showing latest uploaded photo: ${preview.file_name}`;
+  } catch (_error) {
+    $("studentPhotoPreviewWrap").hidden = true;
+    $("studentPhotoPreviewHint").textContent = "No registration photo available yet.";
+  }
+}
+
+function renderFaceCards(containerId, faces, recognized) {
+  const container = $(containerId);
+  if (!faces.length) {
+    container.innerHTML = '<div class="empty-state">No faces in this section.</div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="face-review-grid">
+      ${faces
+        .map((face) => {
+          const title = recognized
+            ? `${face.matched_student_name || "Unknown"} (${face.matched_student_id || "-"})`
+            : "Not recognized";
+          const sub = recognized
+            ? `Username: ${face.matched_student_username || "-"}`
+            : "No match found in registered student photos";
+          const safeFaceId = String(face.face_id || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+          const unmarked = state.facultyStatusSummary?.unmarked_students || [];
+          const unmarkedOptions = unmarked.length
+            ? unmarked
+                .map(
+                  (student) =>
+                    `<option value="${student.student_id}">${student.student_id} - ${student.student_name} (${student.student_username})</option>`
+                )
+                .join("")
+            : '<option value="">No unmarked students</option>';
+          const manualMarkBlock = !recognized
+            ? `
+              <label>
+                Mark This Face As
+                <select id="faceMarkStudent_${safeFaceId}" ${unmarked.length ? "" : "disabled"}>${unmarkedOptions}</select>
+              </label>
+              <button type="button" class="btn-mini" data-action="faculty-mark-face" data-face-id="${face.face_id}" data-select-id="faceMarkStudent_${safeFaceId}" ${unmarked.length ? "" : "disabled"}>Mark Present</button>`
+            : "";
+          return `
+            <div class="face-card">
+              <img src="${face.image_data || ""}" alt="Detected face" />
+              <p><strong>${title}</strong></p>
+              <p>${sub}</p>
+              <p>Source: ${face.group_image_name || "-"}</p>
+              <p>Similarity: ${face.best_similarity ?? "-"}</p>
+              ${manualMarkBlock}
+            </div>`;
+        })
+        .join("")}
+    </div>`;
+}
+
+function renderFacultyStatusSummary(summary) {
+  if (!summary) {
+    $("facultyStatusSummary").innerHTML = "No session selected.";
+    $("facultyMarkedStudents").innerHTML = '<div class="empty-state">No data found.</div>';
+    $("facultyUnmarkedStudents").innerHTML = '<div class="empty-state">No data found.</div>';
+    return;
+  }
+
+  state.facultyStatusSummary = summary;
+  $("facultyStatusSummary").innerHTML = `
+    <strong>Attendance Coverage</strong><br />
+    Session ID: ${summary.session_id}<br />
+    Subject: ${summary.subject_name}<br />
+    Marked students: ${summary.marked_count}<br />
+    Unmarked students: ${summary.unmarked_count}`;
+
+  renderSimpleTable(
+    "facultyMarkedStudents",
+    [
+      { key: "student_id", label: "Student ID" },
+      { key: "student_name", label: "Name" },
+      { key: "student_username", label: "Username" },
+      { key: "is_manual_override", label: "Manual" },
+    ],
+    summary.marked_students || []
+  );
+
+  renderSimpleTable(
+    "facultyUnmarkedStudents",
+    [
+      { key: "student_id", label: "Student ID" },
+      { key: "student_name", label: "Name" },
+      { key: "student_username", label: "Username" },
+      { key: "is_manual_override", label: "Manual" },
+    ],
+    summary.unmarked_students || []
+  );
+}
+
+async function refreshFacultyStatusSummary() {
+  if (!state.sessionId) {
+    state.facultyStatusSummary = null;
+    renderFacultyStatusSummary(null);
+    return;
+  }
+
+  try {
+    renderPanelSkeleton("facultyStatusSummary", 4);
+    renderTableSkeleton("facultyMarkedStudents", 4, 4);
+    renderTableSkeleton("facultyUnmarkedStudents", 4, 4);
+
+    const summary = await api(`/faculty/attendance/${state.sessionId}/status-summary`);
+    renderFacultyStatusSummary(summary);
+  } catch (_error) {
+    state.facultyStatusSummary = null;
+    renderFacultyStatusSummary(null);
+  }
+}
+
+function applyFacultyFaceFilter() {
+  const recognizedBlock = $("facultyRecognizedBlock");
+  const unrecognizedBlock = $("facultyUnrecognizedBlock");
+
+  const showRecognized = state.facultyFaceFilter === "all" || state.facultyFaceFilter === "recognized";
+  const showUnrecognized = state.facultyFaceFilter === "all" || state.facultyFaceFilter === "unrecognized";
+
+  recognizedBlock.hidden = !showRecognized;
+  unrecognizedBlock.hidden = !showUnrecognized;
+
+  $("facesFilterAllBtn").classList.toggle("active", state.facultyFaceFilter === "all");
+  $("facesFilterRecognizedBtn").classList.toggle("active", state.facultyFaceFilter === "recognized");
+  $("facesFilterUnrecognizedBtn").classList.toggle("active", state.facultyFaceFilter === "unrecognized");
+}
+
+function setFacultyFaceFilter(filterKey) {
+  state.facultyFaceFilter = filterKey;
+  applyFacultyFaceFilter();
+}
+
+async function refreshFacultyFacesReview() {
+  if (!state.sessionId) {
+    $("facultyFacesSummary").innerHTML = "No session selected.";
+    $("facultyRecognizedFaces").innerHTML = '<div class="empty-state">No data found.</div>';
+    $("facultyUnrecognizedFaces").innerHTML = '<div class="empty-state">No data found.</div>';
+    return;
+  }
+
+  try {
+    renderPanelSkeleton("facultyFacesSummary", 4);
+    renderTableSkeleton("facultyRecognizedFaces", 3, 2);
+    renderTableSkeleton("facultyUnrecognizedFaces", 3, 2);
+
+    const data = await api(`/faculty/attendance/${state.sessionId}/faces-review`);
+    $("facultyFacesSummary").innerHTML = `
+      <strong>Extraction Summary</strong><br />
+      Session ID: ${data.session_id}<br />
+      Subject: ${data.subject_name}<br />
+      Total detected faces: ${data.total_detected}<br />
+      Recognized faces: ${data.recognized_count}<br />
+      Unrecognized faces: ${data.unrecognized_count}`;
+
+    renderFaceCards("facultyRecognizedFaces", data.recognized_faces || [], true);
+    renderFaceCards("facultyUnrecognizedFaces", data.unrecognized_faces || [], false);
+  } catch (_error) {
+    $("facultyFacesSummary").innerHTML = "No extracted face data available for this session yet.";
+    $("facultyRecognizedFaces").innerHTML = '<div class="empty-state">No recognized faces yet.</div>';
+    $("facultyUnrecognizedFaces").innerHTML = '<div class="empty-state">No unrecognized faces yet.</div>';
+  }
+
+  applyFacultyFaceFilter();
+}
+
 async function login(username, password) {
   const tokenData = await api("/auth/login", {
     method: "POST",
@@ -215,6 +581,13 @@ async function login(username, password) {
 }
 
 async function refreshAdminData() {
+  renderStatsSkeleton("adminStats", 4);
+  renderTableSkeleton("adminFaculty", 6, 4);
+  renderTableSkeleton("adminStudents", 6, 4);
+  renderTableSkeleton("adminAssignments", 6, 5);
+  renderTableSkeleton("adminSessions", 6, 5);
+  renderTableSkeleton("adminRecords", 8, 6);
+
   const [dash, faculty, students, assignments, sessions, records] = await Promise.all([
     api("/admin/dashboard"),
     api("/admin/faculty"),
@@ -224,11 +597,14 @@ async function refreshAdminData() {
     api("/admin/records"),
   ]);
 
+  const totalUsers = dash.faculty_count + dash.student_count + 1;
+  const assignmentCoverage = dash.student_count ? (dash.assignment_count / dash.student_count) * 100 : 0;
+
   $("adminStats").innerHTML =
-    statCard("Faculty", dash.faculty_count) +
-    statCard("Students", dash.student_count) +
-    statCard("Assignments", dash.assignment_count) +
-    statCard("Total Users", dash.faculty_count + dash.student_count + 1);
+    statCard("Faculty", dash.faculty_count, { percent: totalUsers ? (dash.faculty_count / totalUsers) * 100 : 0 }) +
+    statCard("Students", dash.student_count, { percent: totalUsers ? (dash.student_count / totalUsers) * 100 : 0 }) +
+    statCard("Assignments", dash.assignment_count, { percent: assignmentCoverage }) +
+    statCard("Total Users", totalUsers, { percent: 100 });
 
   const facultySelect = $("facultySelect");
   const studentSelect = $("studentSelect");
@@ -329,13 +705,32 @@ async function refreshAdminData() {
 }
 
 async function refreshStudentData() {
-  const [dash, facultyInfo] = await Promise.all([api("/student/dashboard"), api("/student/my-faculty")]);
+  renderStatsSkeleton("studentStats", 4);
+  renderPanelSkeleton("myFaculty", 3);
+  renderPanelSkeleton("studentPhotoStatus", 3);
+  renderTableSkeleton("studentAttendanceHistory", 6, 5);
+
+  const [dash, facultyInfo, photoStatus, attendanceHistory] = await Promise.all([
+    api("/student/dashboard"),
+    api("/student/my-faculty"),
+    api("/student/photo-status"),
+    api("/student/attendance-history"),
+  ]);
+
+  state.studentRegistrationReady = photoStatus.registration_ready;
+  renderStudentPhotoStatus(photoStatus);
+  renderStudentAttendanceHistory(attendanceHistory);
+  await refreshStudentPhotoPreview();
 
   $("studentStats").innerHTML =
-    statCard("Total Classes", dash.total_classes) +
-    statCard("Attended", dash.attended_classes) +
-    statCard("Absent", dash.absent_classes) +
-    statCard("Percentage", `${dash.attendance_percentage}%`);
+    statCard("Total Classes", dash.total_classes, { percent: 100 }) +
+    statCard("Attended", dash.attended_classes, {
+      percent: dash.total_classes ? (dash.attended_classes / dash.total_classes) * 100 : 0,
+    }) +
+    statCard("Absent", dash.absent_classes, {
+      percent: dash.total_classes ? (dash.absent_classes / dash.total_classes) * 100 : 0,
+    }) +
+    statCard("Percentage", `${dash.attendance_percentage}%`, { percent: dash.attendance_percentage });
 
   if (!facultyInfo.faculty) {
     $("myFaculty").innerHTML = "Not assigned yet.";
@@ -382,6 +777,74 @@ async function refreshFacultyLiveSession() {
   $("currentSession").textContent = "none";
 }
 
+function renderFacultySessionMeta(session) {
+  if (!session) {
+    $("facultySessionMeta").innerHTML = "No session selected.";
+    return;
+  }
+
+  const deadlineText = session.update_deadline ? new Date(session.update_deadline).toLocaleString() : "N/A";
+  const statusText = session.can_update ? "Editable" : "Locked";
+
+  $("facultySessionMeta").innerHTML = `
+    <strong>Session Details</strong><br />
+    Session ID: ${session.session_id}<br />
+    Subject: ${session.subject_name}<br />
+    Date: ${new Date(session.session_date).toLocaleString()}<br />
+    Finalized: ${session.is_finalized ? "Yes" : "No"}<br />
+    Update status: ${statusText}<br />
+    Update deadline: ${deadlineText}`;
+}
+
+function getSelectedFacultySession() {
+  if (!state.sessionId) {
+    return null;
+  }
+  return state.facultySessions.find((s) => s.session_id === state.sessionId) || null;
+}
+
+async function refreshFacultyAssignedStudents() {
+  const students = await api("/faculty/students");
+  const studentSelect = $("manualStudentId");
+
+  if (!students.length) {
+    studentSelect.innerHTML = '<option value="">No assigned students</option>';
+    studentSelect.disabled = true;
+    return;
+  }
+
+  studentSelect.innerHTML = students
+    .map((student) => `<option value="${student.id}">${student.id} - ${student.full_name} (${student.username})</option>`)
+    .join("");
+  studentSelect.disabled = false;
+}
+
+async function refreshFacultySessions() {
+  renderTableSkeleton("facultySessionsTable", 6, 6);
+
+  const sessions = await api("/faculty/attendance/sessions");
+  state.facultySessions = sessions;
+
+  renderSimpleTable(
+    "facultySessionsTable",
+    [
+      { key: "session_id", label: "Session ID" },
+      { key: "subject_name", label: "Subject" },
+      { key: "session_date", label: "Date" },
+      { key: "is_finalized", label: "Finalized" },
+      { key: "can_update", label: "Editable" },
+      { key: "update_deadline", label: "Update Deadline" },
+      { key: "actions", label: "Actions" },
+    ],
+    sessions.map((session) => ({
+      ...session,
+      actions: actionButton("Open", "faculty-open-session", session.session_id),
+    }))
+  );
+
+  renderFacultySessionMeta(getSelectedFacultySession());
+}
+
 async function refreshRoleData() {
   if (!state.token) {
     return;
@@ -392,11 +855,20 @@ async function refreshRoleData() {
   }
   if (state.role === "student") {
     await refreshStudentData();
-    activateStudentSection("studentSectionRegister");
+    if (state.studentRegistrationReady) {
+      activateStudentSection("studentSectionSummary");
+    } else {
+      activateStudentSection("studentSectionRegister");
+    }
   }
   if (state.role === "faculty") {
-    await refreshFacultyLiveSession();
-    activateFacultySection("facultySectionStart");
+    await Promise.all([refreshFacultyLiveSession(), refreshFacultySessions(), refreshFacultyAssignedStudents()]);
+    if (state.sessionId) {
+      activateFacultySection("facultySectionScan");
+    } else {
+      activateFacultySection("facultySectionStart");
+      renderFacultySessionMeta(null);
+    }
   }
 }
 
@@ -434,6 +906,19 @@ function renderAttendanceTable(items) {
     </div>`;
 }
 
+function validateUserCreateForm(fullName, username, password) {
+  if (!fullName) {
+    return "Full name is required";
+  }
+  if (username.length < 3) {
+    return "Username must be at least 3 characters";
+  }
+  if (password.length < 5) {
+    return "Password must be at least 5 characters";
+  }
+  return "";
+}
+
 $("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   try {
@@ -452,14 +937,23 @@ $("logoutBtn").addEventListener("click", () => {
 
 $("addFacultyForm").addEventListener("submit", async (e) => {
   e.preventDefault();
+  const fullName = $("facultyName").value.trim();
+  const username = $("facultyUsername").value.trim();
+  const password = $("facultyPassword").value;
+  const validationMessage = validateUserCreateForm(fullName, username, password);
+  if (validationMessage) {
+    showMessage(validationMessage, true);
+    return;
+  }
+
   try {
     await api("/admin/faculty", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        full_name: $("facultyName").value.trim(),
-        username: $("facultyUsername").value.trim(),
-        password: $("facultyPassword").value,
+        full_name: fullName,
+        username: username,
+        password: password,
       }),
     });
     e.target.reset();
@@ -472,14 +966,23 @@ $("addFacultyForm").addEventListener("submit", async (e) => {
 
 $("addStudentForm").addEventListener("submit", async (e) => {
   e.preventDefault();
+  const fullName = $("studentName").value.trim();
+  const username = $("studentUsername").value.trim();
+  const password = $("studentPassword").value;
+  const validationMessage = validateUserCreateForm(fullName, username, password);
+  if (validationMessage) {
+    showMessage(validationMessage, true);
+    return;
+  }
+
   try {
     await api("/admin/student", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        full_name: $("studentName").value.trim(),
-        username: $("studentUsername").value.trim(),
-        password: $("studentPassword").value,
+        full_name: fullName,
+        username: username,
+        password: password,
       }),
     });
     e.target.reset();
@@ -546,11 +1049,15 @@ $("startSessionForm").addEventListener("submit", async (e) => {
     });
     state.sessionId = data.session_id;
     $("currentSession").textContent = String(state.sessionId);
+    await refreshFacultySessions();
+    await refreshFacultyAssignedStudents();
+    renderFacultySessionMeta(getSelectedFacultySession());
+    activateFacultySection("facultySectionScan");
     if (data.already_live) {
-      showMessage(`Session ${state.sessionId} is already live. Finalize it before creating a new one.`, true);
+      showMessage(`Session ${state.sessionId} is already live. Continue with photo upload.`, true);
       return;
     }
-    showMessage(`Session ${state.sessionId} started`);
+    showMessage(`Session ${state.sessionId} started. Upload group photos next.`);
   } catch (error) {
     showMessage(error.message, true);
   }
@@ -582,7 +1089,13 @@ $("scanForm").addEventListener("submit", async (e) => {
     if ($("scanStatus")) {
       $("scanStatus").textContent = `Scan status: completed (auto-marked ${data.present_marked})`;
     }
-    showMessage(`Auto-marked: ${data.present_marked}`);
+    const attendanceRows = await api(`/faculty/attendance/${state.sessionId}`);
+    renderAttendanceTable(attendanceRows);
+    activateFacultySection("facultySectionAttendance");
+    renderFacultySessionMeta(getSelectedFacultySession());
+    await refreshFacultyStatusSummary();
+    await refreshFacultyFacesReview();
+    showMessage(`Auto-marked: ${data.present_marked}. Review attendance next.`);
   } catch (error) {
     showMessage(error.message, true);
     if ($("scanStatus")) {
@@ -596,20 +1109,18 @@ $("scanForm").addEventListener("submit", async (e) => {
 $("manualForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!state.sessionId) {
-    try {
-      await refreshFacultyLiveSession();
-    } catch (error) {
-      showMessage(error.message, true);
-      return;
-    }
-    if (!state.sessionId) {
-      showMessage("No live session found. Start session first", true);
-      return;
-    }
+    showMessage("Select a session from Previous Sessions or start a new one first.", true);
+    return;
   }
 
   try {
-    const studentId = Number($("manualStudentId").value);
+    const selectedStudent = $("manualStudentId").value;
+    if (!selectedStudent) {
+      showMessage("No assigned student available for manual update", true);
+      return;
+    }
+
+    const studentId = Number(selectedStudent);
     if (!Number.isInteger(studentId) || studentId <= 0) {
       showMessage("Enter a valid student ID", true);
       return;
@@ -631,6 +1142,12 @@ $("manualForm").addEventListener("submit", async (e) => {
     try {
       const data = await api(`/faculty/attendance/${state.sessionId}`);
       renderAttendanceTable(data);
+      activateFacultySection("facultySectionAttendance");
+      await refreshFacultySessions();
+      await refreshFacultyAssignedStudents();
+      renderFacultySessionMeta(getSelectedFacultySession());
+      await refreshFacultyStatusSummary();
+      await refreshFacultyFacesReview();
     } catch {
       // Keep manual success even if table refresh fails.
     }
@@ -645,13 +1162,16 @@ $("manualForm").addEventListener("submit", async (e) => {
 
 $("viewAttendanceBtn").addEventListener("click", async () => {
   if (!state.sessionId) {
-    showMessage("Start session first", true);
+    showMessage("Select a session from Previous Sessions or start a new one first.", true);
     return;
   }
 
   try {
     const data = await api(`/faculty/attendance/${state.sessionId}`);
     renderAttendanceTable(data);
+    renderFacultySessionMeta(getSelectedFacultySession());
+    await refreshFacultyStatusSummary();
+    await refreshFacultyFacesReview();
   } catch (error) {
     showMessage(error.message, true);
   }
@@ -659,19 +1179,41 @@ $("viewAttendanceBtn").addEventListener("click", async () => {
 
 $("finalizeBtn").addEventListener("click", async () => {
   if (!state.sessionId) {
-    showMessage("Start session first", true);
+    showMessage("Select a session from Previous Sessions or start a new one first.", true);
     return;
   }
 
   try {
     await api(`/faculty/attendance/${state.sessionId}/finalize`, { method: "POST" });
-    state.sessionId = null;
-    $("currentSession").textContent = "none";
-    showMessage("Attendance finalized");
+    await refreshFacultySessions();
+    await refreshFacultyAssignedStudents();
+    renderFacultySessionMeta(getSelectedFacultySession());
+    showMessage("Attendance finalized. You can still edit within 7 days.");
   } catch (error) {
     showMessage(error.message, true);
   }
 });
+
+$("goManualBtn").addEventListener("click", () => {
+  activateFacultySection("facultySectionManual");
+});
+
+$("backToAttendanceBtn").addEventListener("click", () => {
+  activateFacultySection("facultySectionAttendance");
+});
+
+$("refreshFacultySessionsBtn").addEventListener("click", async () => {
+  try {
+    await Promise.all([refreshFacultySessions(), refreshFacultyAssignedStudents()]);
+    showMessage("Faculty sessions refreshed");
+  } catch (error) {
+    showMessage(error.message, true);
+  }
+});
+
+$("facesFilterAllBtn").addEventListener("click", () => setFacultyFaceFilter("all"));
+$("facesFilterRecognizedBtn").addEventListener("click", () => setFacultyFaceFilter("recognized"));
+$("facesFilterUnrecognizedBtn").addEventListener("click", () => setFacultyFaceFilter("unrecognized"));
 
 $("registerPhotosForm").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -691,8 +1233,41 @@ $("registerPhotosForm").addEventListener("submit", async (e) => {
     });
 
     const ready = data.registration_ready ? "ready" : "not ready";
+    const uploadedText = data.uploaded_files && data.uploaded_files.length ? data.uploaded_files.join(" | ") : "None";
+    const failedText = data.failed && data.failed.length ? data.failed.join(" | ") : "None";
+    $("studentUploadResult").innerHTML = `
+      <strong>Upload Result</strong><br />
+      Uploaded now: ${data.uploaded_now}<br />
+      Total photos: ${data.total_photos}<br />
+      Registration: ${ready}<br />
+      Successful files: ${uploadedText}<br />
+      Failed files: ${failedText}`;
+
     showMessage(`Uploaded ${data.uploaded_now}. Total: ${data.total_photos} (${ready})`);
+    e.target.reset();
     await refreshStudentData();
+  } catch (error) {
+    $("studentUploadResult").innerHTML = `
+      <strong>Upload Result</strong><br />
+      Upload failed: ${error.message}`;
+    showMessage(error.message, true);
+  }
+});
+
+$("reuploadPhotosBtn").addEventListener("click", async () => {
+  const proceed = window.confirm(
+    "This will remove all your existing registration photos. Do you want to continue?"
+  );
+  if (!proceed) {
+    return;
+  }
+
+  try {
+    const data = await api("/student/photos", { method: "DELETE" });
+    $("studentUploadResult").innerHTML = `<strong>Upload Result</strong><br />${data.message}`;
+    await refreshStudentData();
+    activateStudentSection("studentSectionRegister");
+    showMessage("Previous photos removed. Upload new photos now.");
   } catch (error) {
     showMessage(error.message, true);
   }
@@ -776,9 +1351,79 @@ $("adminView").addEventListener("click", async (e) => {
   }
 });
 
-$("facultyView").addEventListener("click", (e) => {
+$("facultyView").addEventListener("click", async (e) => {
   const navButton = e.target.closest(".role-nav-btn");
   if (!navButton) {
+    const actionButtonElement = e.target.closest("button[data-action]");
+    if (!actionButtonElement) {
+      return;
+    }
+
+    if (actionButtonElement.dataset.action === "faculty-open-session") {
+      const id = Number(actionButtonElement.dataset.id);
+      if (!id) {
+        showMessage("Invalid session selected", true);
+        return;
+      }
+
+      state.sessionId = id;
+      $("currentSession").textContent = String(id);
+
+      try {
+        const rows = await api(`/faculty/attendance/${id}`);
+        renderAttendanceTable(rows);
+        await refreshFacultyAssignedStudents();
+        renderFacultySessionMeta(getSelectedFacultySession());
+        await refreshFacultyStatusSummary();
+        await refreshFacultyFacesReview();
+        activateFacultySection("facultySectionAttendance");
+        showMessage(`Opened session ${id}`);
+      } catch (error) {
+        showMessage(error.message, true);
+      }
+    }
+
+    if (actionButtonElement.dataset.action === "faculty-mark-face") {
+      if (!state.sessionId) {
+        showMessage("Select a session first.", true);
+        return;
+      }
+
+      const faceId = actionButtonElement.dataset.faceId;
+      const selectId = actionButtonElement.dataset.selectId;
+      if (!faceId || !selectId) {
+        showMessage("Face mapping controls are invalid.", true);
+        return;
+      }
+
+      const select = document.getElementById(selectId);
+      if (!select) {
+        showMessage("Student selector not found.", true);
+        return;
+      }
+
+      const studentId = Number(select.value);
+      if (!Number.isInteger(studentId) || studentId <= 0) {
+        showMessage("Select a valid unmarked student.", true);
+        return;
+      }
+
+      try {
+        await api(`/faculty/attendance/${state.sessionId}/faces-review/${encodeURIComponent(faceId)}/mark`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ student_id: studentId }),
+        });
+
+        const rows = await api(`/faculty/attendance/${state.sessionId}`);
+        renderAttendanceTable(rows);
+        await refreshFacultyStatusSummary();
+        await refreshFacultyFacesReview();
+        showMessage("Face mapped and student marked present.");
+      } catch (error) {
+        showMessage(error.message, true);
+      }
+    }
     return;
   }
   const sectionId = navButton.dataset.facultySection;
@@ -799,6 +1444,10 @@ $("studentView").addEventListener("click", (e) => {
 });
 
 (async function init() {
+  requestAnimationFrame(() => {
+    document.body.classList.add("is-ready");
+  });
+
   showRoleView();
   if (state.token) {
     try {

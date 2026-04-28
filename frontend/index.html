@@ -13,16 +13,23 @@
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
+    <div class="bg-grid"></div>
     <div class="bg-shape shape-1"></div>
     <div class="bg-shape shape-2"></div>
+    <div class="bg-shape shape-3"></div>
 
     <header class="topbar">
       <div class="brand">
         <div class="brand-dot"></div>
         <div>
           <h1>Group Face Attendance</h1>
-          <p>Admin • Faculty • Student</p>
+          <p>Attendance Intelligence Suite</p>
         </div>
+      </div>
+      <div class="topbar-meta">
+        <span class="meta-pill">Admin</span>
+        <span class="meta-pill">Faculty</span>
+        <span class="meta-pill">Student</span>
       </div>
       <div class="session-actions">
         <span id="whoami"></span>
@@ -69,9 +76,9 @@
             <section id="adminSectionCreateStudent" class="admin-panel">
               <h3>Create Student</h3>
               <form id="addStudentForm" class="stack">
-                <input id="studentName" placeholder="Full Name" required />
-                <input id="studentUsername" placeholder="Username" required />
-                <input id="studentPassword" type="password" placeholder="Password" required />
+                <input id="studentName" placeholder="Full Name" minlength="1" required />
+                <input id="studentUsername" placeholder="Username" minlength="3" required />
+                <input id="studentPassword" type="password" placeholder="Password" minlength="5" required />
                 <button type="submit">Create Student</button>
               </form>
             </section>
@@ -79,9 +86,9 @@
             <section id="adminSectionCreateFaculty" class="admin-panel" hidden>
               <h3>Create Faculty</h3>
               <form id="addFacultyForm" class="stack">
-                <input id="facultyName" placeholder="Full Name" required />
-                <input id="facultyUsername" placeholder="Username" required />
-                <input id="facultyPassword" type="password" placeholder="Password" required />
+                <input id="facultyName" placeholder="Full Name" minlength="1" required />
+                <input id="facultyUsername" placeholder="Username" minlength="3" required />
+                <input id="facultyPassword" type="password" placeholder="Password" minlength="5" required />
                 <button type="submit">Create Faculty</button>
               </form>
             </section>
@@ -141,9 +148,10 @@
         <div class="role-layout">
           <aside class="role-sidebar">
             <button class="role-nav-btn active" data-faculty-section="facultySectionStart" type="button">Start Session</button>
-            <button class="role-nav-btn" data-faculty-section="facultySectionScan" type="button">Scan Group Photos</button>
-            <button class="role-nav-btn" data-faculty-section="facultySectionManual" type="button">Manual Update</button>
-            <button class="role-nav-btn" data-faculty-section="facultySectionAttendance" type="button">View Attendance</button>
+            <button class="role-nav-btn" data-faculty-section="facultySectionScan" type="button">1. Upload Group Photos</button>
+            <button class="role-nav-btn" data-faculty-section="facultySectionAttendance" type="button">2. View Attendance</button>
+            <button class="role-nav-btn" data-faculty-section="facultySectionManual" type="button">3. Manual Update</button>
+            <button class="role-nav-btn" data-faculty-section="facultySectionHistory" type="button">Previous Sessions</button>
           </aside>
 
           <div class="role-main">
@@ -162,6 +170,7 @@
                 <code id="currentSession">none</code>
               </div>
               <p id="scanStatus" class="hint">Scan status: idle</p>
+              <p class="hint">After starting, you will be moved to photo upload automatically.</p>
             </section>
 
             <section id="facultySectionScan" class="role-panel" hidden>
@@ -176,8 +185,8 @@
               <h3>Manual Correction</h3>
               <form id="manualForm" class="grid-2">
                 <label>
-                  Student ID
-                  <input id="manualStudentId" type="number" required />
+                  Student (ID - Name)
+                  <select id="manualStudentId" required></select>
                 </label>
                 <label>
                   Mark
@@ -188,15 +197,56 @@
                 </label>
                 <button type="submit">Update Manually</button>
               </form>
+              <div class="actions-row">
+                <button id="backToAttendanceBtn" class="ghost" type="button">Back To Attendance View</button>
+              </div>
             </section>
 
             <section id="facultySectionAttendance" class="role-panel" hidden>
               <h3>Session Attendance</h3>
               <div class="actions-row">
+                <button id="goManualBtn" class="ghost" type="button">Go To Manual Update</button>
                 <button id="viewAttendanceBtn" class="ghost">View Session Attendance</button>
                 <button id="finalizeBtn">Finalize Session</button>
               </div>
+              <div id="facultySessionMeta" class="panel"></div>
               <div id="facultyAttendanceTable"></div>
+              <h4>Marked vs Unmarked Students</h4>
+              <div id="facultyStatusSummary" class="panel"></div>
+              <div class="split">
+                <div>
+                  <h4>Marked Students</h4>
+                  <div id="facultyMarkedStudents"></div>
+                </div>
+                <div>
+                  <h4>Unmarked Students</h4>
+                  <div id="facultyUnmarkedStudents"></div>
+                </div>
+              </div>
+              <h4>Detected Faces Review</h4>
+              <div id="facultyFacesSummary" class="panel"></div>
+              <div class="actions-row face-filter-row">
+                <button id="facesFilterAllBtn" class="ghost active" type="button">All</button>
+                <button id="facesFilterRecognizedBtn" class="ghost" type="button">Recognized</button>
+                <button id="facesFilterUnrecognizedBtn" class="ghost" type="button">Unrecognized</button>
+              </div>
+              <section id="facultyRecognizedBlock">
+                <h4>Recognized Faces</h4>
+                <div id="facultyRecognizedFaces"></div>
+              </section>
+              <section id="facultyUnrecognizedBlock">
+                <h4>Unrecognized Faces</h4>
+                <div id="facultyUnrecognizedFaces"></div>
+              </section>
+            </section>
+
+            <section id="facultySectionHistory" class="role-panel" hidden>
+              <h3>Previous Sessions</h3>
+              <p class="hint">Finalized sessions are editable for 7 days after session date.</p>
+              <div class="actions-row">
+                <button id="refreshFacultySessionsBtn" class="ghost" type="button">Refresh Sessions</button>
+              </div>
+              <div id="facultySessionsTable"></div>
             </section>
           </div>
         </div>
@@ -215,11 +265,23 @@
           <div class="role-main">
             <section id="studentSectionRegister" class="role-panel">
               <h3>First Time Registration</h3>
+              <div id="studentPhotoStatus" class="panel"></div>
+              <div id="studentPhotoPreviewPanel" class="panel">
+                <strong>Saved Registration Photo Preview</strong>
+                <div id="studentPhotoPreviewWrap" hidden>
+                  <img id="studentPhotoPreviewImg" alt="Student registration preview" class="face-preview-image" />
+                </div>
+                <p id="studentPhotoPreviewHint" class="hint">No registration photo available yet.</p>
+              </div>
               <form id="registerPhotosForm" class="stack">
                 <input id="studentPhotos" type="file" multiple accept="image/*" required />
                 <button type="submit">Upload Registration Photos</button>
               </form>
+              <div class="actions-row">
+                <button id="reuploadPhotosBtn" class="ghost" type="button" hidden>Reupload All Photos</button>
+              </div>
               <p class="hint">Upload at least 3 images from different angles. You can upload one-by-one or many at once.</p>
+              <div id="studentUploadResult" class="panel"></div>
             </section>
 
             <section id="studentSectionFaculty" class="role-panel" hidden>
@@ -230,6 +292,8 @@
             <section id="studentSectionSummary" class="role-panel" hidden>
               <h3>Attendance Summary</h3>
               <div id="studentStats" class="stats"></div>
+              <h4>Session Wise Attendance</h4>
+              <div id="studentAttendanceHistory"></div>
             </section>
           </div>
         </div>
